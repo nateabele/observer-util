@@ -6,6 +6,7 @@ import { proxyToRaw, rawToProxy, UNOBSERVED } from './internals'
 const ENUMERATE = Symbol('enumerate')
 const queuedObservers = new Set()
 let queued = false
+let changes = new Map();
 let currentObserver
 const handlers = { get, ownKeys, set, deleteProperty }
 
@@ -103,6 +104,7 @@ function set (target, key, value, receiver) {
     return Reflect.set(target, key, value, receiver)
   }
   if (key === 'length' || value !== target[key]) {
+    changes.set(receiver, {});
     queueObservers(target, key)
     queueObservers(target, ENUMERATE)
   }
@@ -135,12 +137,13 @@ function runObservers () {
   queuedObservers.forEach(runObserver)
   queuedObservers.clear()
   queued = false
+  changes.clear();
 }
 
 function runObserver (observer) {
   try {
     currentObserver = observer
-    observer()
+    observer(changes);
   } finally {
     currentObserver = undefined
   }
