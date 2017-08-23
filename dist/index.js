@@ -260,6 +260,7 @@ function releaseObserver (observer) {
 const ENUMERATE = Symbol('enumerate');
 const queuedObservers = new Set();
 let queued = false;
+let changes = new Map();
 let currentObserver;
 const handlers = { get, ownKeys, set, deleteProperty };
 
@@ -349,6 +350,10 @@ function ownKeys (target) {
   return Reflect.ownKeys(target)
 }
 
+function coerceKey(target, key) {
+  return target instanceof Array && !isNaN(parseInt(key)) ? parseInt(key) : key;
+}
+
 function set (target, key, value, receiver) {
   if (typeof value === 'object' && value !== null) {
     value = proxyToRaw.get(value) || value;
@@ -356,7 +361,9 @@ function set (target, key, value, receiver) {
   if (typeof key === 'symbol' || target !== proxyToRaw.get(receiver)) {
     return Reflect.set(target, key, value, receiver)
   }
+
   if (key === 'length' || value !== target[key]) {
+    changes.set(receiver, (changes.get(receiver) || []).concat([['set', coerceKey(target, key), value]]));
     queueObservers(target, key);
     queueObservers(target, ENUMERATE);
   }
@@ -365,6 +372,8 @@ function set (target, key, value, receiver) {
 
 function deleteProperty (target, key) {
   if (typeof key !== 'symbol' && (key in target)) {
+    const receiver = rawToProxy.get(target);
+    changes.set(receiver, (changes.get(receiver) || []).concat([['delete', coerceKey(target, key)]]));
     queueObservers(target, key);
     queueObservers(target, ENUMERATE);
   }
@@ -389,12 +398,13 @@ function runObservers () {
   queuedObservers.forEach(runObserver);
   queuedObservers.clear();
   queued = false;
+  changes.clear();
 }
 
 function runObserver (observer) {
   try {
     currentObserver = observer;
-    observer();
+    observer(changes);
   } finally {
     currentObserver = undefined;
   }
